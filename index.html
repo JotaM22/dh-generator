@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DH Generator v1.3 — Editor cinemático 3D</title>
+<title>DH Generator v1.4 — Editor cinemático 3D</title>
 <style>
 :root{font-family:system-ui,Arial;color:#e9eef8;background:#101827}*{box-sizing:border-box}body{margin:0}header{padding:13px 18px;background:#18243a;border-bottom:1px solid #35445c;display:flex;justify-content:space-between;align-items:center}header b{font-size:19px}header small{color:#aebed7}main{display:grid;grid-template-columns:325px 1fr;height:calc(100dvh - 62px)}aside{overflow:auto;padding:17px;background:#19253a;border-right:1px solid #34435b}h2{font-size:15px;margin:16px 0 9px;color:#dbe7fc}p,.hint{font-size:12px;line-height:1.5;color:#aebed7}label{display:block;font-size:12px;margin:11px 0 5px;color:#c8d6ef}input,select,button,textarea{font:inherit}textarea{width:100%;min-height:185px;resize:vertical;background:#101a2b;color:#dce8fa;border:1px solid #4a5a74;border-radius:5px;padding:9px;font-family:monospace;font-size:12px}input,select{width:100%;padding:9px;background:#101a2b;color:#fff;border:1px solid #4a5a74;border-radius:5px}button{cursor:pointer;border:1px solid #536783;background:#283a55;color:white;padding:10px;border-radius:5px}button.primary{background:#1670c6;border-color:#3896e7}button:disabled{opacity:.45;cursor:not-allowed}.buttons{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.buttons button{flex:1}.triple{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.triple label{margin-top:5px}.check{display:flex;align-items:center;gap:9px}.check input{width:auto}.stage{position:relative;min-height:350px;overflow:hidden}#scene{width:100%;height:100%;display:block}.overlay{position:absolute;left:12px;top:12px;background:#101827d9;border:1px solid #40516b;padding:9px 12px;border-radius:6px;font-size:12px;pointer-events:none}.status{color:#7ed9b0;font-size:12px;min-height:35px;margin-top:10px}.list{font-size:12px;color:#d0d9eb;line-height:1.9}hr{border:0;border-top:1px solid #39475d;margin:18px 0}@media(max-width:750px){main{display:flex;flex-direction:column-reverse;height:auto}aside{overflow:visible}.stage{height:52dvh;min-height:300px}header small{display:none}}
 </style></head><body>
-<header><b>DH Generator v1.3 <small>· Constructor cinemático 3D</small></b><small>Rojo X · Verde Y · Azul Z</small></header>
+<header><b>DH Generator v1.4 <small>· Constructor cinemático 3D</small></b><small>Rojo X · Verde Y · Azul Z</small></header>
 <main><aside>
 <h2>1. Articulaciones</h2><p>Agrega una articulación cilíndrica. El eje azul Z es su eje de giro o desplazamiento.</p>
 <div class="buttons"><button class="primary" id="add">+ Agregar articulación</button></div>
@@ -19,7 +19,7 @@
 <select id="axis"><option value="x">Eje X (rojo)</option><option value="y">Eje Y (verde)</option><option value="z">Eje Z (azul)</option></select>
 <label>Distancia entre centros (mm)</label><input id="length" type="number" value="250" min="0" step="10">
 <label class="check"><input type="checkbox" id="overlap"> Articulaciones superpuestas (distancia 0)</label>
-<label class="check"><input type="checkbox" id="dimension" checked> Mostrar cotas</label>
+<label class="check"><input type="checkbox" id="dimension" checked> Mostrar cotas</label><label class="check"><input type="checkbox" id="showGrid" checked> Mostrar cuadrícula</label><label class="check"><input type="checkbox" id="dimAxes" checked> Atenuar ejes superpuestos a eslabones</label><label>Tamaño de etiquetas de ejes (%)</label><input id="axisSize" type="range" min="50" max="140" value="85"><label>Tamaño de cotas (%)</label><input id="dimSize" type="range" min="40" max="130" value="70"><label>Separación global de cotas (mm)</label><input id="dimOffset" type="number" min="10" max="500" value="65"><label>Ajuste por eslabón</label><select id="dimLink"><option value="all">Todos (separación global)</option></select><label>Separación del eslabón seleccionado (mm)</label><input id="linkOffset" type="number" min="10" max="500" value="65"><label>Giro de cota alrededor del eslabón (°)</label><input id="linkAngle" type="number" value="0" step="15">
 <p>Configura estos datos antes de agregar la siguiente articulación. El eslabón conectará los centros de ambos cilindros.</p>
 <hr><h2>3. Generación desde texto JSON</h2><p>Pega una configuración y pulsa Renderizar. Se reemplazará la cadena actual solamente si el JSON es válido.</p><textarea id="jsonInput" spellcheck="false" placeholder='{"units":"mm","joints":[{"rotation":[0,0,0],"axis":"x","distance":0}]}'></textarea><div class="buttons"><button class="primary" id="renderJson">Renderizar JSON</button><button id="exampleJson">Cargar ejemplo</button></div><hr><h2>4. Edición y exportación</h2><div class="buttons"><button id="undo">↶ Deshacer</button><button id="reset">Reiniciar</button><button id="fit">Centrar vista</button></div>
 <div class="buttons"><button id="save">Exportar JSON</button><button id="png">Guardar imagen PNG</button></div>
@@ -42,33 +42,77 @@ const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(200,400,30
 const grid=new THREE.GridHelper(1500,30,0x344b65,0x253449);grid.position.y=-70;scene.add(grid);
 const world=new THREE.Group();scene.add(world);
 const colors={x:0xff5050,y:0x55d27e,z:0x527dff};
-const joints=[];let draft=null, draftEdge=null;
+const joints=[];let draft=null, draftEdge=null;const dimensionSettings=new Map();
 const v=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
 function line(a,b,color,r=1.5){const d=b.clone().sub(a);if(d.length()<.001)return null;const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,d.length(),9),new THREE.MeshStandardMaterial({color}));m.position.copy(a).add(b).multiplyScalar(.5);m.quaternion.setFromUnitVectors(v(0,1,0),d.normalize());world.add(m);return m}
 function label(text,pos,color='#ffffff',scale=64){const c=document.createElement('canvas');c.width=512;c.height=128;const ctx=c.getContext('2d');ctx.font='bold 64px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=color;ctx.fillText(text,256,64);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false}));s.position.copy(pos);s.scale.set(scale*2.5,scale*.65,1);world.add(s);return s}
 function arrow(a,b,color,shaft=2.8,head=13){const d=b.clone().sub(a),len=d.length();if(len<.01)return;const dir=d.clone().normalize();line(a,b.clone().addScaledVector(dir,-Math.min(head,len*.3)),color,shaft);const cone=new THREE.Mesh(new THREE.ConeGeometry(head*.43,head,12),new THREE.MeshBasicMaterial({color,depthTest:false}));cone.position.copy(b).addScaledVector(dir,-head*.5);cone.quaternion.setFromUnitVectors(v(0,1,0),dir);cone.renderOrder=8;world.add(cone)}
-function axes(pos,q,i){for(const a of ['x','y','z']){const dir=v(a==='x'?1:0,a==='y'?1:0,a==='z'?1:0).applyQuaternion(q);arrow(pos,pos.clone().addScaledVector(dir,95),colors[a],3.5,19);label(a.toUpperCase()+i,pos.clone().addScaledVector(dir,124),'#'+colors[a].toString(16).padStart(6,'0'),76)}}
+function axes(pos,q,i){for(const a of ['x','y','z']){const dir=v(a==='x'?1:0,a==='y'?1:0,a==='z'?1:0).applyQuaternion(q);const aligned=joints.some((j,k)=>k>0&&((j.p.distanceTo(pos)<.01)||(joints[k-1].p.distanceTo(pos)<.01))&&Math.abs(dir.dot(j.p.clone().sub(joints[k-1].p).normalize()))>.985);const fade=$('dimAxes').checked&&aligned;arrow(pos,pos.clone().addScaledVector(dir,95),fade?new THREE.Color(colors[a]).lerp(new THREE.Color(0x66778b),.55):colors[a],fade?2.3:3.5,19);label(a.toUpperCase()+i,pos.clone().addScaledVector(dir,124),'#'+colors[a].toString(16).padStart(6,'0'),76*Number($('axisSize').value)/100)}}
 function joint(obj,i,isDraft=false){const g=new THREE.Group();g.position.copy(obj.p);g.quaternion.copy(obj.q);const mat=new THREE.MeshStandardMaterial({color:isDraft?0xffcb66:0x9bb4d0,metalness:.3,roughness:.5,transparent:true,opacity:isDraft?.65:.95});const cyl=new THREE.Mesh(new THREE.CylinderGeometry(19,19,43,32,1,false),mat);cyl.rotation.x=Math.PI/2;g.add(cyl);const ring=new THREE.Mesh(new THREE.TorusGeometry(19,1.5,8,40),new THREE.MeshBasicMaterial({color:0x142033}));g.add(ring);world.add(g);axes(obj.p,obj.q,i);return g}
 function renderWorld(){while(world.children.length){const o=world.children[0];world.remove(o);o.traverse(x=>{if(x.geometry)x.geometry.dispose();if(x.material){const m=x.material;if(m.map)m.map.dispose();m.dispose()}})}
-joints.forEach((j,i)=>{if(i){const prev=joints[i-1];edge(prev,j.p,j.distance)}joint(j,i)});
-if(draft){if(joints.length)edge(joints[joints.length-1],draft.p,draft.distance);joint(draft,joints.length,true)}
+joints.forEach((j,i)=>{if(i){const prev=joints[i-1];edge(prev,j.p,j.distance,i)}joint(j,i)});
+if(draft){if(joints.length)edge(joints[joints.length-1],draft.p,draft.distance,joints.length);joint(draft,joints.length,true)}
 $('list').innerHTML=joints.length?joints.map((j,i)=>'Articulación '+i+': ('+j.p.toArray().map(n=>n.toFixed(1)).join(', ')+') mm').join('<br>'):'Sin articulaciones.';
-$('add').disabled=!!draft;$('editor').hidden=!draft;$('undo').disabled=!joints.length||!!draft;
+refreshDimensionList();$('add').disabled=!!draft;$('editor').hidden=!draft;$('undo').disabled=!joints.length||!!draft;
 }
-function edge(prev,end,distance){line(prev.p,end,0xdce7f6,5);if($('dimension').checked){const mid=prev.p.clone().add(end).multiplyScalar(.5);const dir=end.clone().sub(prev.p);const view=v(1,1,1).normalize();let offset=new THREE.Vector3().crossVectors(dir,view);if(offset.length()<.001)offset=v(0,1,0);offset.normalize().multiplyScalar(40);if(distance>0){line(prev.p.clone().add(offset),end.clone().add(offset),0xffd36d,1.5);line(prev.p,prev.p.clone().add(offset),0xffd36d,1);line(end,end.clone().add(offset),0xffd36d,1)}else{offset=v(35,40,0);line(mid,mid.clone().add(offset),0xffd36d,1)}label(distance.toFixed(1)+' mm',mid.add(offset).add(v(0,15,0)),'#ffd36d',100)}}
+function edge(prev,end,distance,index){
+ line(prev.p,end,0xdce7f6,5);
+ if(!$('dimension').checked)return;
+ const mid=prev.p.clone().add(end).multiplyScalar(.5);
+ const dir=end.clone().sub(prev.p);
+ const setting=dimensionSettings.get(index)||{};
+ const magnitude=setting.offset??Number($('dimOffset').value);
+ const angle=THREE.MathUtils.degToRad(setting.angle??0);
+ let offset;
+ if(dir.lengthSq()>.0001){
+  const unit=dir.clone().normalize();
+  const reference=Math.abs(unit.dot(v(0,1,0)))>.92?v(1,0,0):v(0,1,0);
+  offset=new THREE.Vector3().crossVectors(unit,reference).normalize();
+  offset.applyAxisAngle(unit,angle).multiplyScalar(magnitude);
+ }else offset=v(magnitude*.7,magnitude*.7,0);
+ if(distance>0){
+  line(prev.p.clone().add(offset),end.clone().add(offset),0xffd36d,1.4);
+  line(prev.p,prev.p.clone().add(offset),0xffd36d,.9);
+  line(end,end.clone().add(offset),0xffd36d,.9);
+ }else line(mid,mid.clone().add(offset),0xffd36d,.9);
+ label(distance.toFixed(1)+' mm',mid.add(offset).add(v(0,13,0)),'#ffd36d',100*Number($('dimSize').value)/100);
+}
+function refreshDimensionList(){
+ const select=$('dimLink'),chosen=select.value;
+ select.innerHTML='<option value="all">Todos (separación global)</option>';
+ for(let i=1;i<joints.length+(draft?1:0);i++){const o=document.createElement('option');o.value=String(i);o.textContent='Eslabón '+(i-1)+' → '+i;select.appendChild(o)}
+ if([...select.options].some(o=>o.value===chosen))select.value=chosen;
+ syncDimensionInputs();
+}
+function syncDimensionInputs(){
+ const id=$('dimLink').value,individual=id!=='all';
+ $('linkOffset').disabled=!individual;$('linkAngle').disabled=!individual;
+ if(individual){const setting=dimensionSettings.get(Number(id))||{};$('linkOffset').value=setting.offset??Number($('dimOffset').value);$('linkAngle').value=setting.angle??0}
+}
+$('dimLink').onchange=syncDimensionInputs;
+for(const id of ['axisSize','dimSize','dimOffset'])$(id).oninput=()=>{renderWorld();if(id==='dimOffset')syncDimensionInputs()};
+for(const id of ['linkOffset','linkAngle'])$(id).oninput=()=>{
+ const index=Number($('dimLink').value);if(!Number.isInteger(index)||index<1)return;
+ const setting=dimensionSettings.get(index)||{};
+ setting.offset=Math.max(10,Math.min(500,Number($('linkOffset').value)||65));
+ setting.angle=Number($('linkAngle').value)||0;
+ dimensionSettings.set(index,setting);renderWorld();
+};
+$('showGrid').onchange=()=>{grid.visible=$('showGrid').checked};
+$('dimAxes').onchange=renderWorld;
 function orientation(){return new THREE.Quaternion().setFromEuler(new THREE.Euler(...['rx','ry','rz'].map(id=>THREE.MathUtils.degToRad(Number($(id).value)||0)),'XYZ'))}
 function updateDraft(){if(!draft)return;draft.q.copy(orientation());renderWorld()}
 function add(){if(draft)return;let p=v(),distance=0;if(joints.length){const last=joints[joints.length-1],axis=$('axis').value;distance=$('overlap').checked?0:Math.max(0,Number($('length').value)||0);const direction=v(axis==='x'?1:0,axis==='y'?1:0,axis==='z'?1:0).applyQuaternion(last.q);p=last.p.clone().addScaledVector(direction,distance)}draft={p,q:new THREE.Quaternion(),distance,axis:$('axis').value};['rx','ry','rz'].forEach(id=>$(id).value=0);renderWorld();$('status').textContent='Ajusta la orientación y confirma la articulación '+joints.length+'.'}
 $('add').onclick=add;['rx','ry','rz'].forEach(id=>$(id).addEventListener('input',updateDraft));
 $('confirm').onclick=()=>{if(!draft)return;joints.push(draft);draft=null;renderWorld();$('status').textContent='Articulación '+(joints.length-1)+' confirmada.'};
 $('cancel').onclick=()=>{draft=null;renderWorld();$('status').textContent='Articulación pendiente cancelada.'};
-$('undo').onclick=()=>{joints.pop();renderWorld();$('status').textContent='Última articulación eliminada.'};
-$('reset').onclick=()=>{if(!confirm('¿Eliminar todo el manipulador?'))return;joints.length=0;draft=null;renderWorld();$('status').textContent='Escena reiniciada.'};
+$('undo').onclick=()=>{dimensionSettings.delete(joints.length-1);joints.pop();renderWorld();$('status').textContent='Última articulación eliminada.'};
+$('reset').onclick=()=>{if(!confirm('¿Eliminar todo el manipulador?'))return;joints.length=0;draft=null;dimensionSettings.clear();renderWorld();$('status').textContent='Escena reiniciada.'};
 $('dimension').onchange=renderWorld;
 $('overlap').onchange=()=>{$('length').disabled=$('overlap').checked};
 $('fit').onclick=()=>{const points=joints.map(j=>j.p);if(draft)points.push(draft.p);if(!points.length){orbit.target.set(0,100,0);camera.position.set(650,520,760)}else{const box=new THREE.Box3().setFromPoints(points),center=box.getCenter(v()),size=box.getSize(v()).length();orbit.target.copy(center);camera.position.copy(center).add(v(1,1,1).normalize().multiplyScalar(Math.max(350,size*1.6)))}orbit.update()};
 function download(name,data,type){const url=URL.createObjectURL(new Blob([data],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-$('save').onclick=()=>download('dh-generator.json',JSON.stringify({units:'mm',joints:joints.map(j=>({position:j.p.toArray(),quaternion:j.q.toArray(),linkDistance:j.distance,projectionAxis:j.axis}))},null,2),'application/json');
+$('save').onclick=()=>download('dh-generator.json',JSON.stringify({units:'mm',joints:joints.map(j=>({position:j.p.toArray(),quaternion:j.q.toArray(),linkDistance:j.distance,projectionAxis:j.axis,dimensionOffset:dimensionSettings.get(joints.indexOf(j))?.offset??null,dimensionAngle:dimensionSettings.get(joints.indexOf(j))?.angle??0}))},null,2),'application/json');
 $('png').onclick=()=>{renderer.render(scene,camera);const a=document.createElement('a');a.href=canvas.toDataURL('image/png');a.download='dh-generator.png';a.click()};
 function importConfig(raw){
  const cfg=JSON.parse(raw);
@@ -85,7 +129,7 @@ function importConfig(raw){
   else if(j.distance!==0)throw Error('La primera articulación debe tener distancia 0.');
   next.push({p,q,distance:j.distance,axis:j.axis});
  }
- joints.splice(0,joints.length,...next);draft=null;renderWorld();$('fit').click();$('status').textContent='Configuración cargada: '+joints.length+' articulaciones.';
+ joints.splice(0,joints.length,...next);draft=null;dimensionSettings.clear();renderWorld();$('fit').click();$('status').textContent='Configuración cargada: '+joints.length+' articulaciones.';
 }
 $('renderJson').onclick=()=>{try{importConfig($('jsonInput').value)}catch(e){$('status').textContent='Error de JSON: '+e.message;alert(e.message)}};
 $('exampleJson').onclick=()=>{$('jsonInput').value=JSON.stringify({units:'mm',joints:[{rotation:[-90,0,0],axis:'x',distance:0},{rotation:[0,0,0],axis:'z',distance:250},{rotation:[0,0,0],axis:'x',distance:380},{rotation:[0,90,0],axis:'x',distance:100}]},null,2)};
